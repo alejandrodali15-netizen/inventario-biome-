@@ -248,11 +248,14 @@ function viewInventario() {
       <h3>${it.Equipo || '(sin nombre)'}</h3>
       <div class="meta">Clave: ${it.Clave || '-'} · N° serie: ${it.NumeroSerie || '-'}</div>
       <div class="meta">${it.Marca || ''} ${it.Modelo || ''} · ${it.Area || ''} ${it.Subarea ? '/ ' + it.Subarea : ''}</div>
+      ${it.UltimaActualizacion ? `<div class="meta">Últ. actualización: ${fmtFecha(it.UltimaActualizacion)}${it.ActualizadoPor ? ' · ' + it.ActualizadoPor : ''}</div>` : ''}
       <span class="badge ${badgeClase(it.Estado)}">${it.Estado || 'SIN ESTADO'}</span>
     </div>
   `).join('');
 
   return `
+    <button class="btn" id="nuevoEquipo">+ Agregar equipo nuevo</button>
+    <div style="height:12px"></div>
     <input id="buscarInv" placeholder="Buscar por equipo, marca, clave, serie, área..." value="${escapeAttr(state.filtro)}" />
     <div class="meta" style="margin:-4px 0 10px;">${state.inventario.length} equipos cargados ${q ? '· ' + lista.length + ' resultados' : ''}</div>
     ${state.cargando ? '<div class="empty">Cargando inventario...</div>' : (items || '<div class="empty">Sin resultados.</div>')}
@@ -353,7 +356,53 @@ function modalDetalleEquipo(it) {
     <input id="editFalla" value="${escapeAttr(it.FallaPresentada)}" />
     <label>Observaciones</label>
     <textarea id="editObs">${it.Observaciones || ''}</textarea>
+    ${it.UltimaActualizacion ? `<div class="meta" id="metaUltimaAct">Últ. actualización: ${fmtFecha(it.UltimaActualizacion)}${it.ActualizadoPor ? ' · por ' + it.ActualizadoPor : ''}</div>` : '<div class="meta" id="metaUltimaAct"></div>'}
     <button class="btn" id="guardarEdicion" data-clave="${escapeAttr(it.Clave)}">Guardar cambios</button>
+    <button class="btn secondary" data-close>Cancelar</button>
+  `);
+}
+
+function modalAgregarEquipo() {
+  abrirModal(`
+    <button class="close" data-close>&times;</button>
+    <h2>Agregar equipo nuevo</h2>
+    <label>Clave (única, ej. IEB-AGT-010)</label>
+    <input id="neClave" placeholder="Clave del equipo" />
+    <label>Nombre del equipo</label>
+    <input id="neEquipo" placeholder="ej. MONITOR DE SIGNOS VITALES" />
+    <div class="row">
+      <div>
+        <label>Marca</label>
+        <input id="neMarca" />
+      </div>
+      <div>
+        <label>Modelo</label>
+        <input id="neModelo" />
+      </div>
+    </div>
+    <label>Número de serie</label>
+    <input id="neSerie" />
+    <div class="row">
+      <div>
+        <label>Área</label>
+        <input id="neArea" />
+      </div>
+      <div>
+        <label>Subárea</label>
+        <input id="neSubarea" />
+      </div>
+    </div>
+    <label>Estado</label>
+    <select id="neEstado">
+      ${['EN SERVICIO', 'FUERA DE SERVICIO', 'EN MANTENIMIENTO'].map((op) => `<option value="${op}">${op}</option>`).join('')}
+    </select>
+    <label>Prioridad</label>
+    <select id="nePrioridad">
+      ${['ALTA', 'MEDIA', 'BAJA'].map((op) => `<option value="${op}">${op}</option>`).join('')}
+    </select>
+    <label>Observaciones (opcional)</label>
+    <textarea id="neObs"></textarea>
+    <button class="btn" id="guardarNuevoEquipo">Guardar equipo</button>
     <button class="btn secondary" data-close>Cancelar</button>
   `);
 }
@@ -537,6 +586,43 @@ function bind() {
     };
   });
 
+  // Agregar equipo nuevo
+  const nuevoEquipo = document.getElementById('nuevoEquipo');
+  if (nuevoEquipo) nuevoEquipo.onclick = () => modalAgregarEquipo();
+
+  const guardarNuevoEquipo = document.getElementById('guardarNuevoEquipo');
+  if (guardarNuevoEquipo) guardarNuevoEquipo.onclick = async () => {
+    const nuevo = {
+      clave: document.getElementById('neClave').value.trim(),
+      equipo: document.getElementById('neEquipo').value.trim(),
+      marca: document.getElementById('neMarca').value.trim(),
+      modelo: document.getElementById('neModelo').value.trim(),
+      numeroSerie: document.getElementById('neSerie').value.trim(),
+      area: document.getElementById('neArea').value.trim(),
+      subarea: document.getElementById('neSubarea').value.trim(),
+      estado: document.getElementById('neEstado').value,
+      prioridad: document.getElementById('nePrioridad').value,
+      observaciones: document.getElementById('neObs').value.trim(),
+      usuario: state.sesion.usuario,
+    };
+    if (!nuevo.clave || !nuevo.equipo) return toast('La clave y el nombre del equipo son obligatorios');
+    guardarNuevoEquipo.disabled = true; guardarNuevoEquipo.textContent = 'Guardando...';
+    try {
+      const r = await api('agregarEquipo', nuevo);
+      state.inventario.unshift({
+        Clave: nuevo.clave, Equipo: nuevo.equipo, Marca: nuevo.marca, Modelo: nuevo.modelo,
+        NumeroSerie: nuevo.numeroSerie, Area: nuevo.area, Subarea: nuevo.subarea,
+        Estado: nuevo.estado, Condicion: '', Prioridad: nuevo.prioridad,
+        FallaPresentada: 'NINGUNA', Observaciones: nuevo.observaciones,
+        UltimaActualizacion: r.ultimaActualizacion, ActualizadoPor: state.sesion.usuario,
+      });
+      cerrarModal();
+      toast('Equipo agregado al inventario');
+      renderMain();
+    } catch (err) { toast('Error: ' + err.message); }
+    finally { guardarNuevoEquipo.disabled = false; guardarNuevoEquipo.textContent = 'Guardar equipo'; }
+  };
+
   // Guardar edición inventario
   const guardarEdicion = document.getElementById('guardarEdicion');
   if (guardarEdicion) guardarEdicion.onclick = async () => {
@@ -548,9 +634,13 @@ function bind() {
       Observaciones: document.getElementById('editObs').value,
     };
     try {
-      await api('actualizarInventario', { clave, campos, usuario: state.sesion.usuario });
+      const r = await api('actualizarInventario', { clave, campos, usuario: state.sesion.usuario });
       const it = state.inventario.find((x) => String(x.Clave) === clave);
-      if (it) Object.assign(it, campos);
+      if (it) {
+        Object.assign(it, campos);
+        it.UltimaActualizacion = r.ultimaActualizacion;
+        it.ActualizadoPor = r.actualizadoPor;
+      }
       cerrarModal();
       toast('Equipo actualizado');
       renderMain();
