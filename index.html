@@ -506,6 +506,7 @@ function abrirModal(html) {
   bg.innerHTML = `<div class="modal">${html}</div>`;
   bg.addEventListener('click', (e) => { if (e.target.id === 'modalBg') cerrarModal(); });
   document.body.appendChild(bg);
+  bind(); // conecta los botones recién creados dentro del modal (guardar, verificar, cancelar, etc.)
 }
 function cerrarModal() {
   const bg = document.getElementById('modalBg');
