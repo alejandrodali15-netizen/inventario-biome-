@@ -122,7 +122,7 @@
 /* ===================== CONFIG ===================== */
 // Pega aquí la URL de tu Web App de Apps Script después de desplegarla,
 // o déjalo vacío: la app te pedirá la URL la primera vez y la guardará en el celular.
-const APPS_SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbywNC-ewNpcy_MlTB2qn1g3_paTx_365eTMKJzNvawyV7NWoOwnT2wL83CL8jIjIlWx/exec";
+const APPS_SCRIPT_URL_DEFAULT = "";
 
 /* ===================== ESTADO ===================== */
 const state = {
@@ -133,6 +133,8 @@ const state = {
   fallas: [],
   bajas: [],
   filtro: '',
+  filtros: { area: '', estado: '', prioridad: '' },
+  limiteLista: 60,
   seleccion: null,
   cargando: false,
 };
@@ -237,11 +239,38 @@ function badgeClase(estado) {
   return 'otro';
 }
 
-function viewInventario() {
+function opcionesUnicas(campo) {
+  const set = new Set();
+  state.inventario.forEach((it) => { if (it[campo]) set.add(String(it[campo]).trim()); });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+function inventarioFiltrado() {
   const q = state.filtro.trim().toLowerCase();
-  const lista = !q ? state.inventario.slice(0, 60) : state.inventario.filter((it) => {
-    return Object.values(it).some((v) => String(v).toLowerCase().includes(q));
-  }).slice(0, 60);
+  const { area, estado, prioridad } = state.filtros;
+  return state.inventario.filter((it) => {
+    if (q && !Object.values(it).some((v) => String(v).toLowerCase().includes(q))) return false;
+    if (area && String(it.Area || '') !== area) return false;
+    if (estado && String(it.Estado || '') !== estado) return false;
+    if (prioridad && String(it.Prioridad || '') !== prioridad) return false;
+    return true;
+  });
+}
+
+function viewInventario() {
+  const areas = opcionesUnicas('Area');
+  const estados = opcionesUnicas('Estado');
+  const prioridades = opcionesUnicas('Prioridad');
+  const { area, estado, prioridad } = state.filtros;
+  const hayFiltrosActivos = !!(state.filtro || area || estado || prioridad);
+
+  const resultados = inventarioFiltrado();
+  // Sin filtros (navegando todo el inventario) sí paginamos por rendimiento.
+  // Con búsqueda/filtros activos mostramos todos los resultados: suelen ser pocos.
+  const limiteEfectivo = hayFiltrosActivos ? Math.max(resultados.length, 1) : state.limiteLista;
+  const lista = resultados.slice(0, limiteEfectivo);
+
+  const opt = (valor, actual) => `<option value="${escapeAttr(valor)}" ${valor === actual ? 'selected' : ''}>${valor || 'Todas'}</option>`;
 
   const items = lista.map((it) => `
     <div class="card" data-clave="${escapeAttr(it.Clave)}" data-action="ver">
@@ -257,8 +286,20 @@ function viewInventario() {
     <button class="btn" id="nuevoEquipo">+ Agregar equipo nuevo</button>
     <div style="height:12px"></div>
     <input id="buscarInv" placeholder="Buscar por equipo, marca, clave, serie, área..." value="${escapeAttr(state.filtro)}" />
-    <div class="meta" style="margin:-4px 0 10px;">${state.inventario.length} equipos cargados ${q ? '· ' + lista.length + ' resultados' : ''}</div>
-    ${state.cargando ? '<div class="empty">Cargando inventario...</div>' : (items || '<div class="empty">Sin resultados.</div>')}
+    <div class="row">
+      <select id="filtroArea"><option value="">Área: todas</option>${areas.map((a) => opt(a, area)).join('')}</select>
+      <select id="filtroEstado"><option value="">Estado: todos</option>${estados.map((e) => opt(e, estado)).join('')}</select>
+    </div>
+    <div class="row">
+      <select id="filtroPrioridad"><option value="">Prioridad: todas</option>${prioridades.map((p) => opt(p, prioridad)).join('')}</select>
+      ${hayFiltrosActivos ? '<button class="btn secondary small" id="limpiarFiltros" style="flex:0 0 auto;">Limpiar filtros</button>' : '<div></div>'}
+    </div>
+    <div class="meta" style="margin:-4px 0 10px;">
+      ${state.inventario.length} equipos cargados${hayFiltrosActivos ? ' · <strong>' + resultados.length + ' resultado(s) con los filtros aplicados</strong>' : ''}
+      ${resultados.length > lista.length ? ' · mostrando los primeros ' + lista.length : ''}
+    </div>
+    ${state.cargando ? '<div class="empty">Cargando inventario...</div>' : (items || '<div class="empty">Sin resultados con esos filtros.</div>')}
+    ${(!state.cargando && resultados.length > lista.length) ? '<button class="btn secondary" id="verMasInv">Ver más resultados</button>' : ''}
   `;
 }
 
@@ -574,11 +615,31 @@ function bind() {
     };
   });
 
-  // Inventario: buscar + abrir detalle
+  // Inventario: buscar + filtros + abrir detalle
   const buscarInv = document.getElementById('buscarInv');
   if (buscarInv) {
-    buscarInv.oninput = (e) => { state.filtro = e.target.value; renderMain(); document.getElementById('buscarInv').focus(); };
+    buscarInv.oninput = (e) => {
+      state.filtro = e.target.value;
+      state.limiteLista = 60;
+      renderMain();
+      const campo = document.getElementById('buscarInv');
+      if (campo) { campo.focus(); campo.selectionStart = campo.selectionEnd = campo.value.length; }
+    };
   }
+  const filtroArea = document.getElementById('filtroArea');
+  if (filtroArea) filtroArea.onchange = (e) => { state.filtros.area = e.target.value; state.limiteLista = 60; renderMain(); };
+  const filtroEstado = document.getElementById('filtroEstado');
+  if (filtroEstado) filtroEstado.onchange = (e) => { state.filtros.estado = e.target.value; state.limiteLista = 60; renderMain(); };
+  const filtroPrioridad = document.getElementById('filtroPrioridad');
+  if (filtroPrioridad) filtroPrioridad.onchange = (e) => { state.filtros.prioridad = e.target.value; state.limiteLista = 60; renderMain(); };
+  const limpiarFiltros = document.getElementById('limpiarFiltros');
+  if (limpiarFiltros) limpiarFiltros.onclick = () => {
+    state.filtro = ''; state.filtros = { area: '', estado: '', prioridad: '' }; state.limiteLista = 60;
+    renderMain();
+  };
+  const verMasInv = document.getElementById('verMasInv');
+  if (verMasInv) verMasInv.onclick = () => { state.limiteLista += 60; renderMain(); };
+
   document.querySelectorAll('[data-action="ver"]').forEach((card) => {
     card.onclick = () => {
       const it = state.inventario.find((x) => String(x.Clave) === card.dataset.clave);
