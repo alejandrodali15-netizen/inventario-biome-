@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Inventario Biomédico HGS</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0f766e" />
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --teal: #0f766e;
+    --teal-dark: #0f5f58;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --danger: #dc2626;
+    --warn: #d97706;
+    --ok: #16a34a;
+    --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #app { max-width: 480px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
+
+  header.topbar {
+    background: var(--teal); color: #fff;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 20;
+  }
+  header.topbar h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header.topbar .user { font-size: 12px; opacity: 0.9; }
+  header.topbar button.icon-btn {
+    background: none; border: none; color: #fff; font-size: 13px; padding: 6px 10px;
+    border-radius: 8px; background: rgba(255,255,255,0.15);
+  }
+
+  main { flex: 1; padding: 14px 14px 90px; overflow-y: auto; }
+
+  nav.tabbar {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 480px; background: #fff; border-top: 1px solid var(--border);
+    display: flex; padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 20;
+  }
+  nav.tabbar button {
+    flex: 1; background: none; border: none; padding: 10px 4px 8px; font-size: 11px;
+    color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  nav.tabbar button .ic { font-size: 20px; }
+  nav.tabbar button.active { color: var(--teal); font-weight: 600; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; margin-bottom: 12px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 15px; }
+  .card .meta { font-size: 12.5px; color: var(--muted); margin: 2px 0; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    font-weight: 600; margin-top: 6px;
+  }
+  .badge.servicio { background: #dcfce7; color: var(--ok); }
+  .badge.baja { background: #fee2e2; color: var(--danger); }
+  .badge.propuesto { background: #fef3c7; color: var(--warn); }
+  .badge.otro { background: #e2e8f0; color: var(--muted); }
+
+  input, select, textarea {
+    width: 100%; padding: 11px 12px; font-size: 15px; border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 10px; background: #fff; color: var(--text);
+    font-family: inherit;
+  }
+  label { font-size: 12.5px; color: var(--muted); font-weight: 600; display: block; margin-bottom: 4px; }
+  textarea { min-height: 70px; resize: vertical; }
+
+  button.btn {
+    width: 100%; padding: 13px; font-size: 15px; font-weight: 600; border: none;
+    border-radius: 10px; background: var(--teal); color: #fff; margin-top: 4px;
+  }
+  button.btn:active { background: var(--teal-dark); }
+  button.btn.secondary { background: #e2e8f0; color: var(--text); }
+  button.btn.danger { background: var(--danger); }
+  button.btn.small { width: auto; padding: 8px 14px; font-size: 13px; margin: 4px 4px 0 0; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 10px; font-size: 14px; }
+  .login-wrap { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 24px; }
+  .login-wrap h1 { text-align: center; font-size: 20px; margin-bottom: 4px; }
+  .login-wrap p.sub { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(15,23,42,0.5); z-index: 30;
+    display: flex; align-items: flex-end;
+  }
+  .modal {
+    background: #fff; width: 100%; max-width: 480px; margin: 0 auto; border-radius: 16px 16px 0 0;
+    padding: 18px; max-height: 88vh; overflow-y: auto;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  }
+  .modal h2 { margin: 0 0 14px; font-size: 17px; }
+  .modal .close { float: right; background: none; border: none; font-size: 20px; color: var(--muted); }
+
+  #reader { width: 100%; border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px;
+    z-index: 40; max-width: 90%; text-align: center;
+  }
+  .hidden { display: none !important; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ===================== CONFIG ===================== */
+// Pega aquí la URL de tu Web App de Apps Script después de desplegarla,
+// o déjalo vacío: la app te pedirá la URL la primera vez y la guardará en el celular.
+const APPS_SCRIPT_URL_DEFAULT = "";
+
+/* ===================== ESTADO ===================== */
+const state = {
+  apiUrl: localStorage.getItem('inv_apiUrl') || APPS_SCRIPT_URL_DEFAULT,
+  sesion: JSON.parse(localStorage.getItem('inv_sesion') || 'null'),
+  tab: 'inventario',
+  inventario: [],
+  fallas: [],
+  bajas: [],
+  filtro: '',
+  seleccion: null,
+  cargando: false,
+};
+
+/* ===================== API ===================== */
+async function api(action, payload) {
+  if (!state.apiUrl) throw new Error('Falta configurar la URL del backend');
+  const res = await fetch(state.apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ action }, payload || {})),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error desconocido');
+  return json;
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+/* ===================== RENDER RAÍZ ===================== */
+function render() {
+  const app = document.getElementById('app');
+  if (!state.apiUrl) { app.innerHTML = viewConfig(); bind(); return; }
+  if (!state.sesion) { app.innerHTML = viewLogin(); bind(); return; }
+  app.innerHTML = viewShell();
+  bind();
+  cargarDatosTab();
+}
+
+/* ---- Configuración inicial (URL del Apps Script) ---- */
+function viewConfig() {
+  return `
+  <div class="login-wrap">
+    <h1>Inventario Biomédico</h1>
+    <p class="sub">Primero conecta la app con tu Google Sheet (Apps Script Web App URL).</p>
+    <div class="card">
+      <label>URL del Web App de Apps Script</label>
+      <input id="cfgUrl" placeholder="https://script.google.com/macros/s/..." value="${state.apiUrl || ''}" />
+      <button class="btn" id="cfgGuardar">Guardar y continuar</button>
+    </div>
+  </div>`;
+}
+
+/* ---- Login ---- */
+function viewLogin() {
+  return `
+  <div class="login-wrap">
+    <h1>Inventario Biomédico</h1>
+    <p class="sub">Hospital General de Soledad de Graciano Sánchez</p>
+    <div class="card">
+      <label>Usuario</label>
+      <input id="loginUsuario" placeholder="ej. jperez" autocapitalize="none" />
+      <label>PIN</label>
+      <input id="loginPin" type="password" inputmode="numeric" placeholder="••••" />
+      <button class="btn" id="loginBtn">Entrar</button>
+      <div id="loginMsg" class="meta" style="color:var(--danger);margin-top:8px;"></div>
+    </div>
+    <button class="btn secondary" id="cambiarUrl">Cambiar URL del backend</button>
+  </div>`;
+}
+
+/* ---- Shell con tabs ---- */
+function viewShell() {
+  return `
+    <header class="topbar">
+      <div>
+        <h1>Inventario Biomédico</h1>
+        <div class="user">${state.sesion.nombre} · ${state.sesion.rol === 'jefe' ? 'Jefe de área' : 'Técnico'}</div>
+      </div>
+      <button class="icon-btn" id="logoutBtn">Salir</button>
+    </header>
+    <main id="main">${renderTab()}</main>
+    <nav class="tabbar">
+      <button data-tab="inventario" class="${state.tab === 'inventario' ? 'active' : ''}"><span class="ic">&#128193;</span>Inventario</button>
+      <button data-tab="escanear" class="${state.tab === 'escanear' ? 'active' : ''}"><span class="ic">&#128247;</span>Escanear</button>
+      <button data-tab="fallas" class="${state.tab === 'fallas' ? 'active' : ''}"><span class="ic">&#9888;</span>Fallas</button>
+      <button data-tab="bajas" class="${state.tab === 'bajas' ? 'active' : ''}"><span class="ic">&#128465;</span>Bajas</button>
+    </nav>
+  `;
+}
+
+function renderTab() {
+  if (state.tab === 'inventario') return viewInventario();
+  if (state.tab === 'escanear') return viewEscanear();
+  if (state.tab === 'fallas') return viewFallas();
+  if (state.tab === 'bajas') return viewBajas();
+  return '';
+}
+
+/* ---- Tab Inventario ---- */
+function badgeClase(estado) {
+  const e = (estado || '').toUpperCase();
+  if (e.includes('SERVICIO')) return 'servicio';
+  if (e === 'BAJA') return 'baja';
+  if (e.includes('PROPUESTO')) return 'propuesto';
+  return 'otro';
+}
+
+function viewInventario() {
+  const q = state.filtro.trim().toLowerCase();
+  const lista = !q ? state.inventario.slice(0, 60) : state.inventario.filter((it) => {
+    return Object.values(it).some((v) => String(v).toLowerCase().includes(q));
+  }).slice(0, 60);
+
+  const items = lista.map((it) => `
+    <div class="card" data-clave="${escapeAttr(it.Clave)}" data-action="ver">
+      <h3>${it.Equipo || '(sin nombre)'}</h3>
+      <div class="meta">Clave: ${it.Clave || '-'} · N° serie: ${it.NumeroSerie || '-'}</div>
+      <div class="meta">${it.Marca || ''} ${it.Modelo || ''} · ${it.Area || ''} ${it.Subarea ? '/ ' + it.Subarea : ''}</div>
+      <span class="badge ${badgeClase(it.Estado)}">${it.Estado || 'SIN ESTADO'}</span>
+    </div>
+  `).join('');
+
+  return `
+    <input id="buscarInv" placeholder="Buscar por equipo, marca, clave, serie, área..." value="${escapeAttr(state.filtro)}" />
+    <div class="meta" style="margin:-4px 0 10px;">${state.inventario.length} equipos cargados ${q ? '· ' + lista.length + ' resultados' : ''}</div>
+    ${state.cargando ? '<div class="empty">Cargando inventario...</div>' : (items || '<div class="empty">Sin resultados.</div>')}
+  `;
+}
+
+/* ---- Tab Escanear ---- */
+function viewEscanear() {
+  return `
+    <div class="card">
+      <h3>Escanear equipo</h3>
+      <div class="meta">Apunta la cámara al código QR o de barras de la etiqueta del equipo.</div>
+    </div>
+    <div id="reader"></div>
+    <div class="card">
+      <label>O escribe la clave manualmente</label>
+      <div class="row">
+        <input id="claveManual" placeholder="ej. IEB-AGT-002" />
+        <button class="btn small" id="buscarClaveManual" style="flex:0 0 auto;">Buscar</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ---- Tab Fallas ---- */
+function viewFallas() {
+  const lista = state.fallas.slice().reverse().map((f) => `
+    <div class="card">
+      <h3>${f.Equipo || '(equipo)'} <span class="meta">· ${f.Clave || ''}</span></h3>
+      <div class="meta">${fmtFecha(f.Fecha)} · Reportó: ${f.ReportadoPor || '-'}</div>
+      <div class="meta">${f.Descripcion || ''}</div>
+      ${f.FotoURL ? `<div class="meta"><a href="${f.FotoURL}" target="_blank">Ver foto</a></div>` : ''}
+      <span class="badge ${f.Estatus === 'Abierta' ? 'propuesto' : 'servicio'}">${f.Estatus || ''}</span>
+    </div>
+  `).join('');
+
+  return `
+    <button class="btn" id="nuevaFalla">+ Reportar falla</button>
+    <div style="height:12px"></div>
+    ${lista || '<div class="empty">No hay fallas reportadas.</div>'}
+  `;
+}
+
+/* ---- Tab Bajas ---- */
+function viewBajas() {
+  const esJefe = state.sesion.rol === 'jefe';
+  const lista = state.bajas.slice().reverse().map((b) => `
+    <div class="card">
+      <h3>${b.Equipo || ''} <span class="meta">· ${b.Clave || ''}</span></h3>
+      <div class="meta">${fmtFecha(b.FechaEtiquetado)} · Etiquetó: ${b.EtiquetadoPor || '-'}</div>
+      <div class="meta">Motivo: ${b.Motivo || ''}</div>
+      <span class="badge ${b.Estatus === 'Pendiente' ? 'propuesto' : (b.Estatus === 'Aprobada' ? 'baja' : 'servicio')}">${b.Estatus}</span>
+      ${esJefe && b.Estatus === 'Pendiente' ? `
+        <div>
+          <button class="btn small" data-decision="Aprobada" data-id="${b.ID}">Aprobar baja</button>
+          <button class="btn small secondary" data-decision="Rechazada" data-id="${b.ID}">Rechazar</button>
+        </div>` : ''}
+    </div>
+  `).join('');
+
+  return `
+    <button class="btn" id="nuevaBaja">+ Etiquetar equipo para baja</button>
+    <div style="height:12px"></div>
+    ${lista || '<div class="empty">No hay solicitudes de baja.</div>'}
+  `;
+}
+
+/* ===================== MODALES ===================== */
+function abrirModal(html) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.id = 'modalBg';
+  bg.innerHTML = `<div class="modal">${html}</div>`;
+  bg.addEventListener('click', (e) => { if (e.target.id === 'modalBg') cerrarModal(); });
+  document.body.appendChild(bg);
+}
+function cerrarModal() {
+  const bg = document.getElementById('modalBg');
+  if (bg) bg.remove();
+}
+
+function modalDetalleEquipo(it) {
+  abrirModal(`
+    <button class="close" data-close>&times;</button>
+    <h2>${it.Equipo || ''}</h2>
+    <div class="meta">Clave: ${it.Clave} · N° serie: ${it.NumeroSerie || '-'}</div>
+    <div class="meta">${it.Marca || ''} ${it.Modelo || ''}</div>
+    <div class="meta">${it.Area || ''} ${it.Subarea ? '/ ' + it.Subarea : ''}</div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:12px 0;" />
+    <label>Estado</label>
+    <select id="editEstado">
+      ${['EN SERVICIO', 'FUERA DE SERVICIO', 'EN MANTENIMIENTO', 'PROPUESTO PARA BAJA', 'BAJA'].map((op) =>
+        `<option value="${op}" ${it.Estado === op ? 'selected' : ''}>${op}</option>`).join('')}
+    </select>
+    <label>Condición</label>
+    <input id="editCondicion" value="${escapeAttr(it.Condicion)}" />
+    <label>Falla presentada</label>
+    <input id="editFalla" value="${escapeAttr(it.FallaPresentada)}" />
+    <label>Observaciones</label>
+    <textarea id="editObs">${it.Observaciones || ''}</textarea>
+    <button class="btn" id="guardarEdicion" data-clave="${escapeAttr(it.Clave)}">Guardar cambios</button>
+    <button class="btn secondary" data-close>Cancelar</button>
+  `);
+}
+
+function modalReportarFalla(prefClave, prefEquipo) {
+  abrirModal(`
+    <button class="close" data-close>&times;</button>
+    <h2>Reportar falla</h2>
+    <label>Clave del equipo</label>
+    <input id="ffClave" value="${escapeAttr(prefClave || '')}" placeholder="ej. IEB-AGT-002" />
+    <label>Equipo</label>
+    <input id="ffEquipo" value="${escapeAttr(prefEquipo || '')}" placeholder="Nombre del equipo" />
+    <label>Descripción de la falla</label>
+    <textarea id="ffDesc" placeholder="Describe qué falla presenta..."></textarea>
+    <label>Foto (opcional)</label>
+    <input id="ffFoto" type="file" accept="image/*" capture="environment" />
+    <button class="btn" id="guardarFalla">Enviar reporte</button>
+    <button class="btn secondary" data-close>Cancelar</button>
+  `);
+}
+
+function modalEtiquetarBaja(prefClave, prefEquipo) {
+  abrirModal(`
+    <button class="close" data-close>&times;</button>
+    <h2>Etiquetar equipo para baja</h2>
+    <label>Clave del equipo</label>
+    <input id="bjClave" value="${escapeAttr(prefClave || '')}" placeholder="ej. IEB-AGT-002" />
+    <label>Equipo</label>
+    <input id="bjEquipo" value="${escapeAttr(prefEquipo || '')}" placeholder="Nombre del equipo" />
+    <label>Motivo de la baja</label>
+    <textarea id="bjMotivo" placeholder="Ej. obsoleto, sin refacciones, daño irreparable..."></textarea>
+    <div class="meta">Esta solicitud quedará pendiente de aprobación por el jefe de área.</div>
+    <button class="btn" id="guardarBaja">Enviar solicitud</button>
+    <button class="btn secondary" data-close>Cancelar</button>
+  `);
+}
+
+/* ===================== CARGA DE DATOS ===================== */
+async function cargarDatosTab() {
+  try {
+    if (state.tab === 'inventario' && state.inventario.length === 0) {
+      state.cargando = true; renderMain();
+      const r = await api('getInventario');
+      state.inventario = r.data; state.cargando = false; renderMain();
+    }
+    if (state.tab === 'fallas') {
+      const r = await api('getFallas');
+      state.fallas = r.data; renderMain();
+    }
+    if (state.tab === 'bajas') {
+      const r = await api('getBajas');
+      state.bajas = r.data; renderMain();
+    }
+    if (state.tab === 'escanear') {
+      setTimeout(iniciarEscaner, 50);
+    }
+  } catch (err) {
+    toast('Error: ' + err.message);
+  }
+}
+
+function renderMain() {
+  const main = document.getElementById('main');
+  if (main) main.innerHTML = renderTab();
+  bind();
+}
+
+/* ===================== ESCÁNER ===================== */
+let escanerActivo = null;
+function iniciarEscaner() {
+  const el = document.getElementById('reader');
+  if (!el || typeof Html5Qrcode === 'undefined') return;
+  if (escanerActivo) return;
+  escanerActivo = new Html5Qrcode('reader');
+  Html5Qrcode.getCameras().then((cams) => {
+    if (!cams || !cams.length) { toast('No se encontró cámara'); return; }
+    const camId = cams.find(c => /back|rear|trás/i.test(c.label))?.id || cams[cams.length - 1].id;
+    escanerActivo.start(camId, { fps: 10, qrbox: 220 }, onEscaneoExitoso, () => {}).catch(() => toast('No se pudo iniciar la cámara'));
+  }).catch(() => toast('No se pudo acceder a la cámara'));
+}
+function detenerEscaner() {
+  if (escanerActivo) {
+    const instancia = escanerActivo;
+    escanerActivo = null;
+    instancia.stop().then(() => instancia.clear()).catch(() => {});
+  }
+}
+function onEscaneoExitoso(texto) {
+  detenerEscaner();
+  toast('Código leído: ' + texto);
+  buscarPorClave(texto);
+}
+
+function buscarPorClave(clave) {
+  const it = state.inventario.find((x) => String(x.Clave).toLowerCase() === String(clave).toLowerCase()
+    || String(x.NumeroSerie).toLowerCase() === String(clave).toLowerCase());
+  if (it) { modalDetalleEquipo(it); return; }
+  toast('No se encontró un equipo con esa clave/serie. Puedes reportarlo manualmente.');
+}
+
+/* ===================== HELPERS ===================== */
+function escapeAttr(v) { return String(v == null ? '' : v).replace(/"/g, '&quot;'); }
+function fmtFecha(v) {
+  if (!v) return '-';
+  const d = new Date(v);
+  if (isNaN(d)) return String(v);
+  return d.toLocaleDateString('es-MX') + ' ' + d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+}
+function leerArchivoBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ===================== EVENTOS ===================== */
+function bind() {
+  // Config inicial
+  const cfgGuardar = document.getElementById('cfgGuardar');
+  if (cfgGuardar) cfgGuardar.onclick = () => {
+    const url = document.getElementById('cfgUrl').value.trim();
+    if (!url) return toast('Ingresa la URL del backend');
+    state.apiUrl = url;
+    localStorage.setItem('inv_apiUrl', url);
+    render();
+  };
+
+  const cambiarUrl = document.getElementById('cambiarUrl');
+  if (cambiarUrl) cambiarUrl.onclick = () => {
+    state.apiUrl = '';
+    localStorage.removeItem('inv_apiUrl');
+    render();
+  };
+
+  // Login
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) loginBtn.onclick = async () => {
+    const usuario = document.getElementById('loginUsuario').value.trim();
+    const pin = document.getElementById('loginPin').value.trim();
+    const msg = document.getElementById('loginMsg');
+    msg.textContent = '';
+    if (!usuario || !pin) { msg.textContent = 'Ingresa usuario y PIN'; return; }
+    try {
+      const r = await api('login', { usuario, pin });
+      state.sesion = { usuario: r.usuario, nombre: r.nombre, rol: r.rol };
+      localStorage.setItem('inv_sesion', JSON.stringify(state.sesion));
+      render();
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  };
+
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.onclick = () => {
+    detenerEscaner();
+    state.sesion = null;
+    localStorage.removeItem('inv_sesion');
+    render();
+  };
+
+  // Tabs
+  document.querySelectorAll('nav.tabbar button').forEach((b) => {
+    b.onclick = () => {
+      detenerEscaner();
+      state.tab = b.dataset.tab;
+      render();
+    };
+  });
+
+  // Inventario: buscar + abrir detalle
+  const buscarInv = document.getElementById('buscarInv');
+  if (buscarInv) {
+    buscarInv.oninput = (e) => { state.filtro = e.target.value; renderMain(); document.getElementById('buscarInv').focus(); };
+  }
+  document.querySelectorAll('[data-action="ver"]').forEach((card) => {
+    card.onclick = () => {
+      const it = state.inventario.find((x) => String(x.Clave) === card.dataset.clave);
+      if (it) modalDetalleEquipo(it);
+    };
+  });
+
+  // Guardar edición inventario
+  const guardarEdicion = document.getElementById('guardarEdicion');
+  if (guardarEdicion) guardarEdicion.onclick = async () => {
+    const clave = guardarEdicion.dataset.clave;
+    const campos = {
+      Estado: document.getElementById('editEstado').value,
+      Condicion: document.getElementById('editCondicion').value,
+      FallaPresentada: document.getElementById('editFalla').value,
+      Observaciones: document.getElementById('editObs').value,
+    };
+    try {
+      await api('actualizarInventario', { clave, campos, usuario: state.sesion.usuario });
+      const it = state.inventario.find((x) => String(x.Clave) === clave);
+      if (it) Object.assign(it, campos);
+      cerrarModal();
+      toast('Equipo actualizado');
+      renderMain();
+    } catch (err) { toast('Error: ' + err.message); }
+  };
+
+  // Escáner: búsqueda manual
+  const buscarClaveManual = document.getElementById('buscarClaveManual');
+  if (buscarClaveManual) buscarClaveManual.onclick = () => {
+    const clave = document.getElementById('claveManual').value.trim();
+    if (clave) buscarPorClave(clave);
+  };
+
+  // Fallas
+  const nuevaFalla = document.getElementById('nuevaFalla');
+  if (nuevaFalla) nuevaFalla.onclick = () => modalReportarFalla();
+
+  const guardarFalla = document.getElementById('guardarFalla');
+  if (guardarFalla) guardarFalla.onclick = async () => {
+    const clave = document.getElementById('ffClave').value.trim();
+    const equipo = document.getElementById('ffEquipo').value.trim();
+    const descripcion = document.getElementById('ffDesc').value.trim();
+    const fileInput = document.getElementById('ffFoto');
+    if (!clave || !descripcion) return toast('Completa clave y descripción');
+    guardarFalla.disabled = true; guardarFalla.textContent = 'Enviando...';
+    try {
+      let fotoBase64 = null;
+      if (fileInput.files && fileInput.files[0]) fotoBase64 = await leerArchivoBase64(fileInput.files[0]);
+      await api('reportarFalla', { clave, equipo, descripcion, fotoBase64, usuario: state.sesion.usuario });
+      cerrarModal();
+      toast('Falla reportada');
+      state.fallas = (await api('getFallas')).data;
+      renderMain();
+    } catch (err) { toast('Error: ' + err.message); }
+    finally { guardarFalla.disabled = false; guardarFalla.textContent = 'Enviar reporte'; }
+  };
+
+  // Bajas
+  const nuevaBaja = document.getElementById('nuevaBaja');
+  if (nuevaBaja) nuevaBaja.onclick = () => modalEtiquetarBaja();
+
+  const guardarBaja = document.getElementById('guardarBaja');
+  if (guardarBaja) guardarBaja.onclick = async () => {
+    const clave = document.getElementById('bjClave').value.trim();
+    const equipo = document.getElementById('bjEquipo').value.trim();
+    const motivo = document.getElementById('bjMotivo').value.trim();
+    if (!clave || !motivo) return toast('Completa clave y motivo');
+    try {
+      await api('etiquetarBaja', { clave, equipo, motivo, usuario: state.sesion.usuario });
+      cerrarModal();
+      toast('Solicitud de baja enviada');
+      state.bajas = (await api('getBajas')).data;
+      renderMain();
+    } catch (err) { toast('Error: ' + err.message); }
+  };
+
+  document.querySelectorAll('[data-decision]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api('resolverBaja', { id: b.dataset.id, decision: b.dataset.decision, usuario: state.sesion.usuario });
+        toast('Baja ' + b.dataset.decision.toLowerCase());
+        state.bajas = (await api('getBajas')).data;
+        renderMain();
+      } catch (err) { toast('Error: ' + err.message); }
+    };
+  });
+
+  document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = cerrarModal; });
+}
+
+/* ===================== INICIO ===================== */
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
