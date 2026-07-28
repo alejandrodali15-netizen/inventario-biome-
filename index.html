@@ -136,7 +136,6 @@ const state = {
   ciclo: null,
   filtro: '',
   filtros: { area: '', estado: '', prioridad: '' },
-  filtroVerif: '',
   limiteLista: 60,
   seleccion: null,
   cargando: false,
@@ -329,8 +328,19 @@ function ultimaVerificacion(clave) {
   return mejor;
 }
 
-function resumenVerificacion() {
-  const items = equiposParaVerificar();
+function equiposVerificacionFiltrados() {
+  const q = state.filtro.trim().toLowerCase();
+  const { area, estado, prioridad } = state.filtros;
+  return equiposParaVerificar().filter((it) => {
+    if (q && !Object.values(it).some((v) => String(v).toLowerCase().includes(q))) return false;
+    if (area && String(it.Area || '') !== area) return false;
+    if (estado && String(it.Estado || '') !== estado) return false;
+    if (prioridad && String(it.Prioridad || '') !== prioridad) return false;
+    return true;
+  });
+}
+
+function resumenVerificacion(items) {
   let verificados = 0, noLocalizados = 0;
   const porArea = {};
   items.forEach((it) => {
@@ -350,7 +360,7 @@ function csvEscape(v) {
 
 function exportarReporteVerificacion() {
   const filas = [['Clave', 'Equipo', 'Area', 'Subarea', 'Estado', 'Fecha', 'VerificadoPor', 'Notas']];
-  equiposParaVerificar().forEach((it) => {
+  equiposVerificacionFiltrados().forEach((it) => {
     const v = ultimaVerificacion(it.Clave);
     filas.push([
       it.Clave, it.Equipo, it.Area, it.Subarea,
@@ -373,23 +383,39 @@ function exportarReporteVerificacion() {
 }
 
 function viewVerificacion() {
-  const resumen = resumenVerificacion();
+  const areasOpt = opcionesUnicas('Area');
+  const estadosOpt = opcionesUnicas('Estado');
+  const prioridadesOpt = opcionesUnicas('Prioridad');
+  const { area, estado, prioridad } = state.filtros;
+  const hayFiltrosActivos = !!(state.filtro || area || estado || prioridad);
+  const opt = (valor, actual) => `<option value="${escapeAttr(valor)}" ${valor === actual ? 'selected' : ''}>${valor || 'Todas'}</option>`;
+
+  const itemsFiltrados = equiposVerificacionFiltrados();
+  const resumen = resumenVerificacion(itemsFiltrados);
   const pct = resumen.total ? Math.round((resumen.verificados / resumen.total) * 100) : 0;
   const areas = Object.keys(resumen.porArea).sort((a, b) => a.localeCompare(b));
 
-  const q = (state.filtroVerif || '').trim().toLowerCase();
-  const todosPendientes = equiposParaVerificar().filter((it) => !ultimaVerificacion(it.Clave));
-  const pendientes = (q ? todosPendientes.filter((it) => Object.values(it).some((v) => String(v).toLowerCase().includes(q))) : todosPendientes).slice(0, 60);
+  const pendientes = itemsFiltrados.filter((it) => !ultimaVerificacion(it.Clave)).slice(0, 60);
 
   return `
+    <input id="buscarInv" placeholder="Buscar por equipo, marca, clave, serie, área..." value="${escapeAttr(state.filtro)}" />
+    <div class="row">
+      <select id="filtroArea"><option value="">Área: todas</option>${areasOpt.map((a) => opt(a, area)).join('')}</select>
+      <select id="filtroEstado"><option value="">Estado: todos</option>${estadosOpt.map((e) => opt(e, estado)).join('')}</select>
+    </div>
+    <div class="row">
+      <select id="filtroPrioridad"><option value="">Prioridad: todas</option>${prioridadesOpt.map((p) => opt(p, prioridad)).join('')}</select>
+      ${hayFiltrosActivos ? '<button class="btn secondary small" id="limpiarFiltros" style="flex:0 0 auto;">Limpiar filtros</button>' : '<div></div>'}
+    </div>
+    <div style="height:6px"></div>
     <div class="card">
-      <h3>Ciclo ${cicloActualCliente()}</h3>
+      <h3>Ciclo ${cicloActualCliente()}${hayFiltrosActivos ? ' · filtrado' : ''}</h3>
       <div class="meta">${resumen.verificados} de ${resumen.total} equipos verificados (${pct}%)</div>
       <div style="background:#e2e8f0;border-radius:999px;height:10px;margin:8px 0;overflow:hidden;">
         <div style="background:var(--teal);height:100%;width:${pct}%;"></div>
       </div>
       <div class="meta">${resumen.noLocalizados} no localizado(s) · ${resumen.pendientes} pendiente(s)</div>
-      <button class="btn secondary" id="exportarReporte">Exportar reporte (CSV)</button>
+      <button class="btn secondary" id="exportarReporte">Exportar reporte${hayFiltrosActivos ? ' filtrado' : ''} (CSV)</button>
     </div>
     <div class="card">
       <h3>Avance por área</h3>
@@ -400,14 +426,14 @@ function viewVerificacion() {
       }).join('') || '<div class="meta">Sin datos.</div>'}
     </div>
     <h3 style="font-size:14px;margin:4px 2px 8px;">Pendientes por verificar</h3>
-    <input id="buscarPendientes" placeholder="Buscar en pendientes..." value="${escapeAttr(state.filtroVerif)}" />
-    <div class="meta" style="margin:-4px 0 10px;">${todosPendientes.length} pendiente(s)${q ? ' · ' + pendientes.length + ' con ese criterio' : ''}</div>
+    <div class="meta" style="margin:-4px 0 10px;">${resumen.pendientes} pendiente(s)${hayFiltrosActivos ? ' con los filtros aplicados' : ''}</div>
     ${pendientes.map((it) => `
       <div class="card" data-clave="${escapeAttr(it.Clave)}" data-action="ver">
         <h3>${it.Equipo || '(sin nombre)'}</h3>
         <div class="meta">Clave: ${it.Clave} · ${it.Area || ''}${it.Subarea ? ' / ' + it.Subarea : ''}</div>
       </div>
-    `).join('') || '<div class="empty">No hay pendientes con ese criterio.</div>'}
+    `).join('') || '<div class="empty">No hay pendientes con esos filtros.</div>'}
+    ${resumen.pendientes > pendientes.length ? `<div class="meta">Mostrando los primeros ${pendientes.length} pendientes; refina la búsqueda para ver el resto.</div>` : ''}
   `;
 }
 
@@ -877,10 +903,7 @@ function bind() {
     }
   };
 
-  // Pestaña Verificación: buscar en pendientes + exportar reporte
-  const buscarPendientes = document.getElementById('buscarPendientes');
-  if (buscarPendientes) buscarPendientes.oninput = (e) => { state.filtroVerif = e.target.value; renderMain(); };
-
+  // Pestaña Verificación: exportar reporte (los filtros se comparten con Inventario)
   const exportarReporte = document.getElementById('exportarReporte');
   if (exportarReporte) exportarReporte.onclick = () => exportarReporteVerificacion();
 
