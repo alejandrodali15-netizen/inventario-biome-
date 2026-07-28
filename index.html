@@ -640,11 +640,21 @@ function modalEtiquetarBaja(prefClave, prefEquipo) {
 /* ===================== CARGA DE DATOS ===================== */
 async function cargarDatosTab() {
   try {
-    if (state.tab === 'inventario' && state.inventario.length === 0) {
+    // Inventario y verificaciones se cargan una sola vez al entrar a la app
+    // (sin importar la pestaña activa), para que el estado de verificación
+    // esté disponible aunque abras un equipo desde Inventario o Escanear
+    // justo después de recargar la página.
+    if (state.inventario.length === 0) {
       state.cargando = true; renderMain();
-      const r = await api('getInventario');
-      state.inventario = r.data; state.cargando = false; renderMain();
+      state.inventario = (await api('getInventario')).data;
+      state.cargando = false; renderMain();
     }
+    if (state.ciclo === null) {
+      const rv = await api('getVerificaciones');
+      state.verificaciones = rv.data; state.ciclo = rv.ciclo;
+      renderMain();
+    }
+
     if (state.tab === 'fallas') {
       const r = await api('getFallas');
       state.fallas = r.data; renderMain();
@@ -654,13 +664,10 @@ async function cargarDatosTab() {
       state.bajas = r.data; renderMain();
     }
     if (state.tab === 'verificacion') {
-      state.cargando = true; renderMain();
-      if (state.inventario.length === 0) {
-        state.inventario = (await api('getInventario')).data;
-      }
-      const r = await api('getVerificaciones');
-      state.verificaciones = r.data; state.ciclo = r.ciclo;
-      state.cargando = false; renderMain();
+      // Se refresca cada vez por si otro técnico verificó algo mientras tanto.
+      const rv = await api('getVerificaciones');
+      state.verificaciones = rv.data; state.ciclo = rv.ciclo;
+      renderMain();
     }
     if (state.tab === 'escanear') {
       setTimeout(iniciarEscaner, 50);
