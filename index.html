@@ -122,7 +122,7 @@
 /* ===================== CONFIG ===================== */
 // Pega aquí la URL de tu Web App de Apps Script después de desplegarla,
 // o déjalo vacío: la app te pedirá la URL la primera vez y la guardará en el celular.
-const APPS_SCRIPT_URL_DEFAULT = "";
+const APPS_SCRIPT_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbywNC-ewNpcy_MlTB2qn1g3_paTx_365eTMKJzNvawyV7NWoOwnT2wL83CL8jIjIlWx/exec";
 
 /* ===================== ESTADO ===================== */
 const state = {
@@ -132,8 +132,11 @@ const state = {
   inventario: [],
   fallas: [],
   bajas: [],
+  verificaciones: [],
+  ciclo: null,
   filtro: '',
   filtros: { area: '', estado: '', prioridad: '' },
+  filtroVerif: '',
   limiteLista: 60,
   seleccion: null,
   cargando: false,
@@ -215,6 +218,7 @@ function viewShell() {
     <main id="main">${renderTab()}</main>
     <nav class="tabbar">
       <button data-tab="inventario" class="${state.tab === 'inventario' ? 'active' : ''}"><span class="ic">&#128193;</span>Inventario</button>
+      <button data-tab="verificacion" class="${state.tab === 'verificacion' ? 'active' : ''}"><span class="ic">&#9989;</span>Verificar</button>
       <button data-tab="escanear" class="${state.tab === 'escanear' ? 'active' : ''}"><span class="ic">&#128247;</span>Escanear</button>
       <button data-tab="fallas" class="${state.tab === 'fallas' ? 'active' : ''}"><span class="ic">&#9888;</span>Fallas</button>
       <button data-tab="bajas" class="${state.tab === 'bajas' ? 'active' : ''}"><span class="ic">&#128465;</span>Bajas</button>
@@ -224,6 +228,7 @@ function viewShell() {
 
 function renderTab() {
   if (state.tab === 'inventario') return viewInventario();
+  if (state.tab === 'verificacion') return viewVerificacion();
   if (state.tab === 'escanear') return viewEscanear();
   if (state.tab === 'fallas') return viewFallas();
   if (state.tab === 'bajas') return viewBajas();
@@ -303,6 +308,109 @@ function viewInventario() {
   `;
 }
 
+/* ---- Tab Verificación de inventario físico ---- */
+function cicloActualCliente() {
+  return state.ciclo || String(new Date().getFullYear());
+}
+
+function equiposParaVerificar() {
+  // El equipo dado de baja ya no necesita verificarse físicamente.
+  return state.inventario.filter((it) => String(it.Estado || '').toUpperCase() !== 'BAJA');
+}
+
+function ultimaVerificacion(clave) {
+  const ciclo = cicloActualCliente();
+  let mejor = null;
+  for (const v of state.verificaciones) {
+    if (String(v.Clave) !== String(clave)) continue;
+    if (String(v.Ciclo) !== String(ciclo)) continue;
+    if (!mejor || new Date(v.Fecha) >= new Date(mejor.Fecha)) mejor = v;
+  }
+  return mejor;
+}
+
+function resumenVerificacion() {
+  const items = equiposParaVerificar();
+  let verificados = 0, noLocalizados = 0;
+  const porArea = {};
+  items.forEach((it) => {
+    const area = it.Area || 'Sin área';
+    if (!porArea[area]) porArea[area] = { total: 0, verificados: 0 };
+    porArea[area].total++;
+    const v = ultimaVerificacion(it.Clave);
+    if (v && v.Estado === 'Verificado') { verificados++; porArea[area].verificados++; }
+    else if (v && v.Estado === 'No localizado') { noLocalizados++; }
+  });
+  return { total: items.length, verificados, noLocalizados, pendientes: items.length - verificados - noLocalizados, porArea };
+}
+
+function csvEscape(v) {
+  return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+}
+
+function exportarReporteVerificacion() {
+  const filas = [['Clave', 'Equipo', 'Area', 'Subarea', 'Estado', 'Fecha', 'VerificadoPor', 'Notas']];
+  equiposParaVerificar().forEach((it) => {
+    const v = ultimaVerificacion(it.Clave);
+    filas.push([
+      it.Clave, it.Equipo, it.Area, it.Subarea,
+      v ? v.Estado : 'Pendiente',
+      v ? fmtFecha(v.Fecha) : '',
+      v ? v.Usuario : '',
+      v ? (v.Notas || '') : '',
+    ]);
+  });
+  const csv = filas.map((r) => r.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `inventario_fisico_${cicloActualCliente()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function viewVerificacion() {
+  const resumen = resumenVerificacion();
+  const pct = resumen.total ? Math.round((resumen.verificados / resumen.total) * 100) : 0;
+  const areas = Object.keys(resumen.porArea).sort((a, b) => a.localeCompare(b));
+
+  const q = (state.filtroVerif || '').trim().toLowerCase();
+  const todosPendientes = equiposParaVerificar().filter((it) => !ultimaVerificacion(it.Clave));
+  const pendientes = (q ? todosPendientes.filter((it) => Object.values(it).some((v) => String(v).toLowerCase().includes(q))) : todosPendientes).slice(0, 60);
+
+  return `
+    <div class="card">
+      <h3>Ciclo ${cicloActualCliente()}</h3>
+      <div class="meta">${resumen.verificados} de ${resumen.total} equipos verificados (${pct}%)</div>
+      <div style="background:#e2e8f0;border-radius:999px;height:10px;margin:8px 0;overflow:hidden;">
+        <div style="background:var(--teal);height:100%;width:${pct}%;"></div>
+      </div>
+      <div class="meta">${resumen.noLocalizados} no localizado(s) · ${resumen.pendientes} pendiente(s)</div>
+      <button class="btn secondary" id="exportarReporte">Exportar reporte (CSV)</button>
+    </div>
+    <div class="card">
+      <h3>Avance por área</h3>
+      ${areas.map((a) => {
+        const d = resumen.porArea[a];
+        const p = d.total ? Math.round((d.verificados / d.total) * 100) : 0;
+        return `<div class="meta" style="display:flex;justify-content:space-between;margin-bottom:5px;"><span>${a}</span><span>${d.verificados}/${d.total} (${p}%)</span></div>`;
+      }).join('') || '<div class="meta">Sin datos.</div>'}
+    </div>
+    <h3 style="font-size:14px;margin:4px 2px 8px;">Pendientes por verificar</h3>
+    <input id="buscarPendientes" placeholder="Buscar en pendientes..." value="${escapeAttr(state.filtroVerif)}" />
+    <div class="meta" style="margin:-4px 0 10px;">${todosPendientes.length} pendiente(s)${q ? ' · ' + pendientes.length + ' con ese criterio' : ''}</div>
+    ${pendientes.map((it) => `
+      <div class="card" data-clave="${escapeAttr(it.Clave)}" data-action="ver">
+        <h3>${it.Equipo || '(sin nombre)'}</h3>
+        <div class="meta">Clave: ${it.Clave} · ${it.Area || ''}${it.Subarea ? ' / ' + it.Subarea : ''}</div>
+      </div>
+    `).join('') || '<div class="empty">No hay pendientes con ese criterio.</div>'}
+  `;
+}
+
 /* ---- Tab Escanear ---- */
 function viewEscanear() {
   return `
@@ -379,6 +487,13 @@ function cerrarModal() {
 }
 
 function modalDetalleEquipo(it) {
+  const v = ultimaVerificacion(it.Clave);
+  const estadoBadge = !v
+    ? '<span class="badge propuesto">Pendiente de verificar</span>'
+    : v.Estado === 'Verificado'
+      ? `<span class="badge servicio">Verificado · ${fmtFecha(v.Fecha)}${v.Usuario ? ' · ' + v.Usuario : ''}</span>`
+      : `<span class="badge baja">No localizado · ${fmtFecha(v.Fecha)}${v.Usuario ? ' · ' + v.Usuario : ''}</span>`;
+
   abrirModal(`
     <button class="close" data-close>&times;</button>
     <h2>${it.Equipo || ''}</h2>
@@ -399,7 +514,21 @@ function modalDetalleEquipo(it) {
     <textarea id="editObs">${it.Observaciones || ''}</textarea>
     ${it.UltimaActualizacion ? `<div class="meta" id="metaUltimaAct">Últ. actualización: ${fmtFecha(it.UltimaActualizacion)}${it.ActualizadoPor ? ' · por ' + it.ActualizadoPor : ''}</div>` : '<div class="meta" id="metaUltimaAct"></div>'}
     <button class="btn" id="guardarEdicion" data-clave="${escapeAttr(it.Clave)}">Guardar cambios</button>
-    <button class="btn secondary" data-close>Cancelar</button>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:16px 0 10px;" />
+    <h3 style="font-size:14px;margin:0 0 8px;">Verificación física — Ciclo ${cicloActualCliente()}</h3>
+    <div style="margin-bottom:10px;">${estadoBadge}</div>
+    <label>Área confirmada</label>
+    <input id="verArea" value="${escapeAttr(it.Area)}" />
+    <label>Subárea confirmada</label>
+    <input id="verSubarea" value="${escapeAttr(it.Subarea)}" />
+    <label>Notas (opcional)</label>
+    <input id="verNotas" placeholder="ej. etiqueta dañada, cambió de piso..." />
+    <button class="btn" id="confirmarVerificacion" data-clave="${escapeAttr(it.Clave)}">Confirmar verificación</button>
+    <button class="btn danger" id="marcarNoLocalizado" data-clave="${escapeAttr(it.Clave)}">Marcar como no localizado</button>
+
+    <div style="height:6px"></div>
+    <button class="btn secondary" data-close>Cerrar</button>
   `);
 }
 
@@ -496,6 +625,15 @@ async function cargarDatosTab() {
     if (state.tab === 'bajas') {
       const r = await api('getBajas');
       state.bajas = r.data; renderMain();
+    }
+    if (state.tab === 'verificacion') {
+      state.cargando = true; renderMain();
+      if (state.inventario.length === 0) {
+        state.inventario = (await api('getInventario')).data;
+      }
+      const r = await api('getVerificaciones');
+      state.verificaciones = r.data; state.ciclo = r.ciclo;
+      state.cargando = false; renderMain();
     }
     if (state.tab === 'escanear') {
       setTimeout(iniciarEscaner, 50);
@@ -707,6 +845,44 @@ function bind() {
       renderMain();
     } catch (err) { toast('Error: ' + err.message); }
   };
+
+  // Verificación física: confirmar / no localizado
+  async function enviarVerificacion(clave, estadoVer) {
+    const area = document.getElementById('verArea').value.trim();
+    const subarea = document.getElementById('verSubarea').value.trim();
+    const notas = document.getElementById('verNotas').value.trim();
+    try {
+      const r = await api('verificarEquipo', { clave, estado: estadoVer, area, subarea, notas, usuario: state.sesion.usuario });
+      state.verificaciones.push({
+        ID: 'local-' + Date.now(), Ciclo: r.ciclo, Clave: clave, Estado: estadoVer,
+        Area: area, Subarea: subarea, Usuario: state.sesion.usuario, Fecha: r.fecha, Notas: notas,
+      });
+      if (estadoVer === 'Verificado') {
+        const it = state.inventario.find((x) => String(x.Clave) === clave);
+        if (it) { if (area) it.Area = area; if (subarea) it.Subarea = subarea; }
+      }
+      cerrarModal();
+      toast(estadoVer === 'Verificado' ? 'Equipo verificado' : 'Marcado como no localizado');
+      renderMain();
+    } catch (err) { toast('Error: ' + err.message); }
+  }
+
+  const confirmarVerificacion = document.getElementById('confirmarVerificacion');
+  if (confirmarVerificacion) confirmarVerificacion.onclick = () => enviarVerificacion(confirmarVerificacion.dataset.clave, 'Verificado');
+
+  const marcarNoLocalizado = document.getElementById('marcarNoLocalizado');
+  if (marcarNoLocalizado) marcarNoLocalizado.onclick = () => {
+    if (confirm('¿Marcar este equipo como no localizado en el ciclo actual?')) {
+      enviarVerificacion(marcarNoLocalizado.dataset.clave, 'No localizado');
+    }
+  };
+
+  // Pestaña Verificación: buscar en pendientes + exportar reporte
+  const buscarPendientes = document.getElementById('buscarPendientes');
+  if (buscarPendientes) buscarPendientes.oninput = (e) => { state.filtroVerif = e.target.value; renderMain(); };
+
+  const exportarReporte = document.getElementById('exportarReporte');
+  if (exportarReporte) exportarReporte.onclick = () => exportarReporteVerificacion();
 
   // Escáner: búsqueda manual
   const buscarClaveManual = document.getElementById('buscarClaveManual');
